@@ -1,0 +1,121 @@
+# PR validation: build, lint and test each changed stack, then the security gate (always).
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      control_plane: ${{ steps.filter.outputs.control_plane }}
+      agent_runtime: ${{ steps.filter.outputs.agent_runtime }}
+      orbit_ui: ${{ steps.filter.outputs.orbit_ui }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            control_plane:
+              - 'control-plane/**'
+              - '.github/workflows/ci.yml'
+            agent_runtime:
+              - 'agent-runtime/**'
+              - '.github/workflows/ci.yml'
+            orbit_ui:
+              - 'orbit-ui/**'
+              - '.github/workflows/ci.yml'
+
+  control-plane:
+    needs: changes
+    if: needs.changes.outputs.control_plane == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: control-plane
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: control-plane/global.json
+          cache: true
+          cache-dependency-path: control-plane/**/*.csproj
+      - name: Restore (NuGet audit fails on vulnerable packages)
+        run: dotnet restore
+      - name: Build (warnings as errors)
+        run: dotnet build -c Release --no-restore
+      - name: Test (Testcontainers Postgres)
+        run: dotnet test -c Release --no-build
+
+  agent-runtime:
+    needs: changes
+    if: needs.changes.outputs.agent_runtime == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.13', '3.14']
+    defaults:
+      run:
+        working-directory: agent-runtime
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: agent-runtime/uv.lock
+      - run: uv sync --frozen
+      - name: Lint (ruff incl. bandit S rules)
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Type check (mypy --strict)
+        run: uv run mypy
+      - name: Test (Testcontainers Postgres)
+        run: uv run pytest --cov --cov-report=term-missing
+
+  orbit-ui:
+    needs: changes
+    if: needs.changes.outputs.orbit_ui == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: orbit-ui
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: orbit-ui/package-lock.json
+      - run: npm ci
+      - run: npx ng lint
+      - run: npx ng test --watch=false
+      - run: npx ng build -c production
+
+  security-gate:
+    uses: ./.github/workflows/security-gate.yml
+    permissions:
+      contents: read
+      security-events: write

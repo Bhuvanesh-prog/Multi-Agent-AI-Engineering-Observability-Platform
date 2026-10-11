@@ -1,0 +1,143 @@
+# Combined security gate (Maestro's table): secrets, SAST, dependencies, filesystem/IaC.
+# Every job fails on high/critical. SARIF is always kept as an artifact; it is uploaded to
+# GitHub code scanning only when the repo variable CODE_SCANNING_ENABLED is 'true'
+# (code scanning on private repos needs GitHub Advanced Security).
+name: security-gate
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1
+  SEMGREP_IMAGE: semgrep/semgrep:1.180.0
+  TRIVY_IMAGE: aquasec/trivy:0.75.0
+  CHECKOV_VERSION: 3.3.26
+
+jobs:
+  secrets:
+    name: secrets (gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks (commits in this PR / push)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            range="$HEAD_SHA"
+          else
+            range="$BASE_SHA..$HEAD_SHA"
+          fi
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" "$GITLEAKS_IMAGE" \
+            git /repo --log-opts="$range" --redact --exit-code 1 \
+            --report-format sarif --report-path /repo/gitleaks.sarif
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-gitleaks
+          path: gitleaks.sarif
+          if-no-files-found: ignore
+      - if: always() && vars.CODE_SCANNING_ENABLED == 'true'
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+
+  sast:
+    name: sast (semgrep)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: semgrep
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src "$SEMGREP_IMAGE" \
+            semgrep scan --metrics=off --error \
+              --config p/owasp-top-ten --config p/csharp --config p/typescript --config p/python \
+              --sarif-output=semgrep.sarif
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-semgrep
+          path: semgrep.sarif
+          if-no-files-found: ignore
+      - if: always() && vars.CODE_SCANNING_ENABLED == 'true'
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  dependencies:
+    name: dependencies (NuGet, npm, pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: control-plane/global.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: NuGet audit (incl. transitive)
+        working-directory: control-plane
+        run: |
+          dotnet restore
+          dotnet list package --vulnerable --include-transitive | tee nuget-audit.txt
+          if grep -qE '\b(High|Critical)\b' nuget-audit.txt; then exit 1; fi
+      - name: npm audit (high+)
+        working-directory: orbit-ui
+        run: npm audit --audit-level=high
+      - name: pip-audit
+        working-directory: agent-runtime
+        run: |
+          uv export --frozen --no-dev --no-emit-project -o requirements.audit.txt
+          uvx pip-audit -r requirements.audit.txt --disable-pip --progress-spinner off
+
+  filesystem-and-iac:
+    name: filesystem + IaC (trivy, checkov)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: trivy fs (vulns, secrets, misconfig)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" "$TRIVY_IMAGE" fs /repo \
+            --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 \
+            --skip-dirs /repo/orbit-ui/node_modules --format sarif --output /repo/trivy.sarif
+      - name: checkov (workflows, Dockerfiles, k8s/Helm, Bicep)
+        run: |
+          uvx --from "checkov==$CHECKOV_VERSION" checkov -d . --quiet --compact \
+            --framework github_actions dockerfile kubernetes helm bicep
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-trivy
+          path: trivy.sarif
+          if-no-files-found: ignore
+      - if: always() && vars.CODE_SCANNING_ENABLED == 'true'
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
