@@ -1,0 +1,61 @@
+# Local dev stack: Postgres 18 + pgvector, Azure Service Bus emulator (+ its SQL Server).
+# Copy .env.example to .env and fill the passwords before `docker compose up -d`.
+name: orbit
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18
+    restart: unless-stopped
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    environment:
+      POSTGRES_DB: orbit
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      ORBIT_OWNER_PASSWORD: ${ORBIT_OWNER_PASSWORD:?set ORBIT_OWNER_PASSWORD in .env}
+      ORBIT_APP_PASSWORD: ${ORBIT_APP_PASSWORD:?set ORBIT_APP_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${ORBIT_PG_PORT:-5433}:5432"
+    volumes:
+      # PG 18 images keep data under /var/lib/postgresql/18/docker; mount the parent.
+      - pgdata:/var/lib/postgresql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orbit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  servicebus-sql:
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: ${ACCEPT_EULA:?set ACCEPT_EULA=Y in .env to accept the SQL Server and emulator EULAs}
+      MSSQL_SA_PASSWORD: ${SB_SQL_PASSWORD:?set SB_SQL_PASSWORD in .env}
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  servicebus:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:2.0.1
+    restart: unless-stopped
+    depends_on:
+      servicebus-sql:
+        condition: service_healthy
+    environment:
+      SQL_SERVER: servicebus-sql
+      MSSQL_SA_PASSWORD: ${SB_SQL_PASSWORD:?set SB_SQL_PASSWORD in .env}
+      ACCEPT_EULA: ${ACCEPT_EULA}
+      SQL_WAIT_INTERVAL: "5"
+      EMULATOR_HTTP_PORT: "5300"
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:5300:5300"
+    volumes:
+      - ./local/servicebus/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+
+volumes:
+  pgdata:
