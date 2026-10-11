@@ -1,0 +1,54 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key
+.pgpass
+appsettings.*.local.json
+
+# .NET
+bin/
+obj/
+*.user
+TestResults/
+*.trx
+coverage*.xml
+
+# Node / Angular
+node_modules/
+dist/
+.angular/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Scanner / build outputs
+*.sarif
+migrate.sql
+sbom*.json
+
+# IaC / k8s
+.terraform/
+*.tfstate*
+kubeconfig*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vs/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code local settings
+.claude/settings.local.json
