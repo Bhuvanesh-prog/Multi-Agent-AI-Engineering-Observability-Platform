@@ -1,0 +1,33 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    groups:
+      actions: { patterns: ['*'] }
+
+  - package-ecosystem: nuget
+    directory: /control-plane
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    groups:
+      opentelemetry: { patterns: ['OpenTelemetry*'] }
+      aspnetcore: { patterns: ['Microsoft.AspNetCore*', 'Microsoft.Extensions*'] }
+
+  - package-ecosystem: uv
+    directory: /agent-runtime
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+
+  - package-ecosystem: npm
+    directory: /orbit-ui
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    groups:
+      angular: { patterns: ['@angular/*', '@angular-eslint/*', 'angular-eslint'] }
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }

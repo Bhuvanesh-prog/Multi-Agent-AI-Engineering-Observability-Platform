@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Orbit.ControlPlane.Api/Orbit.ControlPlane.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Orbit.ControlPlane.Api.Tests/Orbit.ControlPlane.Api.Tests.csproj" />
+  </Folder>
+</Solution>

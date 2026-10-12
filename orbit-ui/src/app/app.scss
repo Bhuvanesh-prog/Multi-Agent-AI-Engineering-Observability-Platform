@@ -1,0 +1,69 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+  &:focus {
+    left: 1rem;
+    top: 0.5rem;
+    z-index: 10;
+    padding: 0.5rem 0.75rem;
+    background: var(--orbit-surface);
+    border-radius: var(--orbit-radius);
+  }
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--orbit-border);
+  background: var(--orbit-surface);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+nav a {
+  color: var(--orbit-muted);
+  text-decoration: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--orbit-radius);
+  &.active {
+    color: var(--orbit-fg);
+    background: var(--orbit-accent-soft);
+  }
+}
+
+.api-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: var(--orbit-muted);
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--orbit-muted);
+  &.up { background: var(--orbit-ok); }
+  &.down { background: var(--orbit-danger); }
+}
+
+main {
+  flex: 1;
+  width: min(72rem, 100%);
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+  &:focus { outline: none; }
+}

@@ -1,0 +1,26 @@
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <span class="brand">Orbit</span>
+
+  <nav aria-label="Primary">
+    <a routerLink="/runs" routerLinkActive="active" ariaCurrentWhenActive="page">Runs</a>
+  </nav>
+
+  <span class="api-status" role="status">
+    @if (meta.isLoading()) {
+      <span class="dot" aria-hidden="true"></span> Connecting…
+    } @else if (meta.error()) {
+      <span class="dot down" aria-hidden="true"></span> API offline
+    } @else {
+      @let m = meta.value();
+      @if (m) {
+        <span class="dot up" aria-hidden="true"></span> {{ m.environment }} · v{{ version() }}
+      }
+    }
+  </span>
+</header>
+
+<main id="main" tabindex="-1">
+  <router-outlet />
+</main>

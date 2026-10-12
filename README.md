@@ -25,7 +25,29 @@ Full design: [docs/orbit-blueprint.md](docs/orbit-blueprint.md).
 
 ## Status
 
-Phase 0 — Foundations (in progress). See the 12-week plan in the blueprint.
+Phase 0 — Foundations (in review). See the 12-week plan in the blueprint.
+
+## Run locally
+
+```bash
+cp .env.example .env            # fill the passwords; set ACCEPT_EULA=Y to accept the SQL Server / emulator EULAs
+docker compose up -d --wait     # Postgres 18 + pgvector on 127.0.0.1:5433, Service Bus emulator on 5672 (health :5300)
+pre-commit install              # gitleaks + ruff + hygiene hooks
+
+# control plane → http://localhost:5080 (Scalar UI at /scalar in Development)
+dotnet user-secrets set "ConnectionStrings:Orbit" "<value of ConnectionStrings__Orbit from .env>" --project control-plane/src/Orbit.ControlPlane.Api
+dotnet run --project control-plane/src/Orbit.ControlPlane.Api
+
+# agent runtime → http://127.0.0.1:8081 (reads ORBIT_* from ../.env)
+cd agent-runtime && uv run orbit-agent-runtime
+
+# UI → http://localhost:4200
+cd orbit-ui && npm ci && npm start
+```
+
+Tests: `dotnet test` (control-plane), `uv run pytest` (agent-runtime), `npx ng test --watch=false` (orbit-ui). All need Docker for Testcontainers except the UI.
+
+Windows notes: the `&` in this folder's name breaks npm's `.cmd` shims, so run the Angular CLI as `node node_modules/@angular/cli/bin/ng.js …`. Use `127.0.0.1`, not `localhost`, in database URLs (async psycopg does not fall back from IPv6).
 
 ## Local tooling
 
